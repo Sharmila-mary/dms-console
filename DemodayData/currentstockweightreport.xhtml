@@ -1,0 +1,211 @@
+<ui:composition xmlns="http://www.w3.org/1999/xhtml"
+	xmlns:h="http://xmlns.jcp.org/jsf/html"
+	xmlns:f="http://xmlns.jcp.org/jsf/core"
+	xmlns:ui="http://xmlns.jcp.org/jsf/facelets"
+	xmlns:csng="http://xmlns.jcp.org/jsf/composite/csng"
+	xmlns:p="http://primefaces.org/ui">
+	<h:inputHidden value="#{popUpsBean.bean}" />
+	<p:panel id="currentStockPanel" styleClass="content_txn">
+		<h:panelGrid columns="2">
+			<h:panelGrid
+				rendered="#{popUpsBean.enableSubDistrReportData}">
+				<h:panelGrid>
+					<h:outputLabel value="Select Distributor">
+						<span class="color-red">*</span>
+					</h:outputLabel>
+					<h:panelGrid columns="2">
+						<p:selectOneMenu id="sRoute" style="padding-right:35px"
+							value="#{currentStockWeightReportBean.selectedDistr}"
+							styleClass="Wid55 DispBlock">
+							<f:selectItems
+								value="#{currentStockWeightReportBean.subDistrCodes.entrySet()}"
+								var="entry" itemValue="#{entry.key}" itemLabel="#{entry.key}-#{entry.value}"></f:selectItems>
+							<p:ajax event="change" update="sRoute distrBranch selectGodown cenLob cenProdHier cenProdLevel"
+								listener="#{currentStockWeightReportBean.loadSubDistrData(currentStockWeightReportBean.selectedDistr)}"></p:ajax>
+						</p:selectOneMenu>
+						
+					</h:panelGrid>
+					<p:message for="sRoute"></p:message>
+				</h:panelGrid>
+				<h:panelGrid></h:panelGrid>
+				<h:panelGrid></h:panelGrid>
+				<h:panelGrid></h:panelGrid>
+			</h:panelGrid>
+		<h:panelGrid rendered="#{popUpsBean.cmpuser}">
+		<h:outputLabel value="#{lbl.distributor}">
+				<span class="color-red">*</span></h:outputLabel>
+			<h:panelGrid columns="2" rendered="#{popUpsBean.cmpuser}">
+					<p:inputText id="distrType" value="#{popUpsBean.distrType}"
+						readonly="true"   required="true"
+						requiredMessage="#{err.E_MISSING_DISTRIBUTOR_BRANCH}">
+					</p:inputText>
+					<p:commandButton id="reportDistrType" value="..." immediate="true"
+						action="#{popUpsBean.loadDistrType}" styleClass="popup"
+						oncomplete="PF('distrtypepopup').show()"
+						update=":content :distributortypepopup" />				
+			</h:panelGrid>
+			<p:message for="distrType" id="validatedistrType" />
+			<p:message for="distrType"/>
+		</h:panelGrid>
+		<h:panelGrid >
+				<h:outputLabel value="#{lbl.distributor_branch}">
+				<span class="color-red">*</span></h:outputLabel>
+				<h:panelGrid columns="2">
+				<p:inputText id="distrBranch" value="#{popUpsBean.distrBrCode}"
+					readonly="true"  >
+				</p:inputText>
+				<p:commandButton id="reportDistrBranch" value="..."
+					rendered="#{!popUpsBean.cmpuser and !popUpsBean.enableSubDistrReportData}" styleClass="popup"
+					action="#{popUpsBean.loadDistrBranches}" immediate="true"
+					oncomplete="PF('branchPopup').show()" update=":content :loadBranches" />
+				<p:commandButton id="reportDistrBranchMDM" value="..."
+					rendered="#{popUpsBean.cmpuser}" styleClass="popup"
+					action="#{popUpsBean.loadDistrBranchesForMDM}" immediate="true"
+					oncomplete="if (!args.validationFailed) if (args.showDialog) if (args.hasErrors) PF('delError').show(); else PF('branchPopup').show()"
+					update=":content :loadBranches" />		
+				<p:commandButton id="reportSubDistrBranchMDM" value="..."
+					rendered="#{!popUpsBean.cmpuser and popUpsBean.enableSubDistrReportData}" styleClass="popup"
+					action="#{popUpsBean.loadDistrBranchesForSubDistrs(currentStockWeightReportBean.distrCode,currentStockWeightReportBean.distrCode)}" immediate="true"
+					oncomplete="if (!args.validationFailed) if (args.hasErrors) PF('delError').show(); else PF('branchPopup').show()"
+					update=":content :loadBranches" />		
+					</h:panelGrid>
+				<p:message for="distrBranch" id="validatedistrBranch" />
+				<p:message for="distrBranch"/>
+		</h:panelGrid>
+		<h:panelGrid>
+				<h:outputLabel value="#{lbl.godown}">
+				<span class="color-red">*</span></h:outputLabel>
+				<h:panelGrid columns="2">
+				<p:inputText id="selectGodown" value="#{popUpsBean.godown}"
+					  disabled="true">
+					<p:ajax event="blur" update="selectGodown,validateGodown" />
+				</p:inputText>
+				<p:commandButton value="..." styleClass="popup"
+					action="#{popUpsBean.loadDefaultGodowns}" immediate="true"
+					oncomplete="if (!args.validationFailed) if (args.showDialog) if (args.hasErrors) PF('delError').show(); else PF('godownpopup').show()"
+					update=":content :loadgodownform">
+				</p:commandButton>
+				</h:panelGrid>
+				<p:message for="selectGodown" id="validateGodown" />
+			<h:panelGrid></h:panelGrid><h:panelGrid></h:panelGrid><h:panelGrid></h:panelGrid>	
+				
+		</h:panelGrid>
+		<h:panelGrid  rendered="#{!popUpsBean.cmpuser and currentStockWeightReportBean.lobFlag}" id="cenLob">
+			<h:outputLabel value="#{lbl.lob_value}"><span class="color-red">*</span></h:outputLabel>
+				<h:panelGrid columns="2">
+				<p:inputText id="lob_value" value="#{lOBPopupBean.lobValue}" readonly="true" size="23"></p:inputText>
+				<p:commandButton id="lob_button" value="..." action="#{lOBPopupBean.loadLobValues}"
+				update=":content :lobForm" styleClass="popup"
+				oncomplete="PF('lobValueWidget').show()"></p:commandButton>		
+				</h:panelGrid>
+					
+		</h:panelGrid>	
+		
+		<h:panelGrid id="cenProdHier" >
+				<h:outputText value="#{lbl.product_hierarchy_level}" />
+				<h:panelGrid columns="2">
+				<p:inputText value="#{popUpsBean.productLevel}"  
+					readonly="true">
+				</p:inputText>
+				<p:commandButton id="productHierVal" value="..." styleClass="popup"
+					action="#{popUpsBean.loadProductHierarchyLevel}"
+					oncomplete="PF('prodlevelPopupVar').show()" immediate="true"
+					update=":content :prodlevelPopupForm">
+					<p:ajax update="reset,dwnpdfreport" />
+				</p:commandButton>
+			</h:panelGrid>
+			<p:message for="productHierVal" />
+			<p:message for="productHierVal" />
+			
+		</h:panelGrid>
+		<h:panelGrid id="cenProdLevel"   >
+				<h:outputText value="#{lbl.product_hierarchy_level_value}" />
+              <h:panelGrid columns="2">
+				<p:inputText value="#{popUpsBean.productValue}"  
+					readonly="true">
+				</p:inputText>
+				<p:commandButton value="..." styleClass="popup"
+					action="#{popUpsBean.loadProdHierValues}"
+					oncomplete="if (!args.validationFailed) if (args.showDialog) if (args.hasErrors) PF('delError').show(); else PF('prdlevelvaluePopup').show()"
+					update=":content :prdlevelvaluePopupForm" id="prodValue">
+					<p:ajax update="prodValue,validateProdValue,dwnpdfreport"
+						 />
+				</p:commandButton>
+			</h:panelGrid>
+				<p:message for="reset" />
+				<p:message for="prodValue" id="validateProdValue" />
+		</h:panelGrid>
+		<h:panelGrid >
+				<h:outputLabel value="#{lbl.stock_value_as_per}">
+				<span class="color-red">*</span></h:outputLabel>
+				<p:selectOneMenu value="#{popUpsBean.stockValueasPer}" style="padding-right:35px;"
+					 >
+					<f:selectItem id="stockValsPer" itemLabel="#{lbl.purchase_price_with_out_tax}"
+						itemValue="Purchase Rate" />
+				</p:selectOneMenu>
+				<p:message for="stockValsPer" />
+				<p:message for="stockValsPer"  />
+		</h:panelGrid>
+		<h:panelGrid  >
+				<h:outputText id="productStatus" value="#{appConfig.showSKU ? lbl.SKU_status : lbl.product_status}" />
+				<p:selectOneMenu value="#{popUpsBean.productStatus}" styleClass="width100"
+					 >
+					<f:selectItem itemLabel="#{lbl.all}" itemValue="ALL" />
+					<f:selectItem itemLabel="#{lbl.active}" itemValue="Y" />
+					<f:selectItem itemLabel="#{lbl.in_active}" itemValue="N" />
+				</p:selectOneMenu>
+				<p:message for="productStatus" />
+				<p:message for="productStatus"  />
+		</h:panelGrid>
+		<h:panelGrid  >
+				<h:outputText value="#{lbl.batch_status}" />
+				<p:selectOneMenu  id="batchsts" value="#{popUpsBean.batchStatus}" styleClass="width100"
+					 >
+					<f:selectItem itemLabel="#{lbl.all}" itemValue="ALL" />
+					<f:selectItem itemLabel="#{lbl.active}" itemValue="Y" />
+					<f:selectItem itemLabel="#{lbl.in_active}" itemValue="N" />
+				</p:selectOneMenu>
+				<p:message for="batchsts" />
+				<p:message for="batchsts"  />
+		</h:panelGrid>
+		<h:panelGrid/>
+		
+		</h:panelGrid>
+		<h:panelGrid columns="2">
+		<p:column>
+			<p:selectBooleanCheckbox 
+				value="#{currentStockWeightReportBean.exportToExcel}">
+				<p:ajax update="btnGroup" event="change" />
+			</p:selectBooleanCheckbox>
+			</p:column>
+			<p:column>
+			<h:outputLabel value="#{lbl.export_to_excel}"></h:outputLabel>
+			
+			</p:column>
+		</h:panelGrid>
+		<h:panelGroup id="btnGroup" styleClass="buttons_center">
+		
+			<p:commandButton id="dwnpdfreport" value="#{lbl.generate}"
+				icon="pi pi-caret-down" styleClass="generate"
+				action="#{currentStockWeightReportBean.getGenerateReportForPDF}"
+				oncomplete="if (!args.validationFailed) if (args.showDialog) if (args.hasErrors) PF('delError').show(); else window.open('../reports/CurrentStockWeightReport.pdf');"
+				update=":content"
+				rendered="#{!currentStockWeightReportBean.exportToExcel}">
+			</p:commandButton>
+			
+			<p:commandButton id="dwnCSVreport" value="#{lbl.generate}"
+				icon="pi pi-caret-down" styleClass="generate"
+				action="#{currentStockWeightReportBean.getExternalCSVDownload}"
+				oncomplete="if (!args.validationFailed) if (args.showDialog) if (args.hasErrors) PF('delError').show(); else window.open('../reports/CurrentStockWeightReport.csv');"
+				update=":content" 
+				rendered="#{currentStockWeightReportBean.exportToExcel}">
+			</p:commandButton>
+			
+			<p:commandButton id="reset" value="#{lbl.reset}" styleClass="clear"
+				action="#{currentStockWeightReportBean.reset}" update=":content" icon="pi pi-replay"
+				ajax="true" />
+		
+		</h:panelGroup>
+		
+	</p:panel>
+</ui:composition>

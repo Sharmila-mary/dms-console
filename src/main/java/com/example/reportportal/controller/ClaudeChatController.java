@@ -4,6 +4,7 @@ import com.example.reportportal.model.ChatRequest;
 import com.example.reportportal.service.ClaudeAiService;
 import com.example.reportportal.service.QueryExecutionService;
 import com.example.reportportal.service.RagService;
+import com.example.reportportal.service.ReportQueryService;
 import com.example.reportportal.service.SchemaIntrospectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,15 +26,18 @@ public class ClaudeChatController {
     private final SchemaIntrospectionService schemaService;
     private final RagService ragService;
     private final QueryExecutionService queryService;
+    private final ReportQueryService reportQueryService;
 
     public ClaudeChatController(ClaudeAiService claudeService,
                                 SchemaIntrospectionService schemaService,
                                 RagService ragService,
-                                QueryExecutionService queryService) {
+                                QueryExecutionService queryService,
+                                ReportQueryService reportQueryService) {
         this.claudeService = claudeService;
         this.schemaService = schemaService;
         this.ragService = ragService;
         this.queryService = queryService;
+        this.reportQueryService = reportQueryService;
     }
 
     @PostMapping("/chat")
@@ -50,7 +54,7 @@ public class ClaudeChatController {
                 schemaContext = "Schema unavailable — database connection failed.";
             }
 
-            // Step 2: Fetch top-8 relevant RAG chunks
+            // Step 2: Fetch relevant RAG chunks (for non-XML source files)
             String ragContext = "";
             try {
                 ragContext = ragService.searchRelevantChunks(request.getIssue());
@@ -58,17 +62,69 @@ public class ClaudeChatController {
                 log.warn("RAG search failed: {}", e.getMessage());
             }
 
+            // Step 2b: Assemble full content of all uploaded XML query files
+            String fullQueryXml = "";
+            try {
+                List<String> xmlFiles = ragService.listXmlFileNames();
+                StringBuilder xmlBuilder = new StringBuilder();
+                for (String xmlFile : xmlFiles) {
+                    String content = ragService.getFullFileContent(xmlFile);
+                    if (!content.isBlank()) {
+                        xmlBuilder.append("=== ").append(xmlFile).append(" ===\n");
+                        xmlBuilder.append(content).append("\n\n");
+                        log.info("Assembled full XML for: {}", xmlFile);
+                    }
+                }
+                fullQueryXml = xmlBuilder.toString();
+            } catch (Exception e) {
+                log.warn("Failed to assemble XML query files: {}", e.getMessage());
+            }
+
             // Step 3: Call Claude with strict JSON format
             Map<String, Object> aiResponse = claudeService.chatAnalyze(
                     request.getIssue(),
                     request.getMessages(),
                     schemaContext,
-                    ragContext
+                    ragContext,
+                    fullQueryXml
             );
 
             // Check for API error
             if (aiResponse.containsKey("error")) {
                 return ResponseEntity.status(500).body(aiResponse);
+            }
+
+            // Step 3b: If Claude identified a known report query, build SQL deterministically
+            // from the XML + DB lookups — do NOT use Claude's sql field for this
+            String queryName = (String) aiResponse.get("query_name");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> extractedParams = (Map<String, Object>) aiResponse.get("extracted_params");
+
+            if (queryName != null && !queryName.isBlank() && !fullQueryXml.isBlank()) {
+                try {
+                    String builtSql = reportQueryService.buildSql(fullQueryXml, queryName, extractedParams);
+                    if (builtSql != null) {
+                        aiResponse.put("sql", builtSql);
+                        log.info("Built SQL from XML for query: {}", queryName);
+                    } else {
+                        // buildSql returned null — likely missing distrBrCodes
+                        java.util.List<?> codes = extractedParams != null
+                                ? (java.util.List<?>) extractedParams.getOrDefault("distrBrCodes", java.util.List.of())
+                                : java.util.List.of();
+                        if (codes.isEmpty()) {
+                            aiResponse.put("warning", "No distributor branch code found in your description. "
+                                    + "Please include the branch code (e.g. KLDEL01) so the report query can be executed.");
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("ReportQueryService failed, falling back to Claude sql: {}", e.getMessage());
+                }
+            } else if (queryName == null || queryName.isBlank()) {
+                // No matching query in XML — explain why there's no SQL
+                aiResponse.put("sql_explanation",
+                        "No matching report query found in the uploaded XML files for this issue type. "
+                        + "The diagnosis above is based on schema context only. "
+                        + "Upload the relevant query XML file to enable SQL execution for this report.");
             }
 
             // Step 4: Auto-execute the SQL if present

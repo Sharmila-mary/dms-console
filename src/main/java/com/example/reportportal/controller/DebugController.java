@@ -231,12 +231,14 @@ public class DebugController {
     // --- RAG Endpoints ---
 
     @PostMapping("/rag/upload")
-    public ResponseEntity<Map<String, String>> uploadFile(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<Map<String, String>> uploadFile(@RequestParam("files") List<MultipartFile> files) {
         try {
-            String fileName = file.getOriginalFilename();
-            String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-            ragService.ingestFile(fileName, content);
-            return ResponseEntity.ok(Map.of("message", "File '" + fileName + "' uploaded and ingested successfully"));
+            for (MultipartFile file : files) {
+                String fileName = file.getOriginalFilename();
+                String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+                ragService.ingestFile(fileName, content);
+            }
+            return ResponseEntity.ok(Map.of("message", files.size() + " file(s) uploaded and ingested successfully"));
         } catch (Exception e) {
             log.error("File upload failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", "Upload failed: " + e.getMessage()));

@@ -112,6 +112,38 @@ public class RagService {
         return result;
     }
 
+    /**
+     * Reassembles the full original content of a file from its ordered RAG chunks.
+     * Subsequent chunks skip the first `chunkOverlap` chars to remove the duplicated overlap region.
+     */
+    public String getFullFileContent(String fileName) {
+        List<RagChunk> chunks = ragChunkRepository.findByFileNameOrderByChunkIndexAsc(fileName);
+        if (chunks.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(chunks.get(0).getContent());
+        for (int i = 1; i < chunks.size(); i++) {
+            String content = chunks.get(i).getContent();
+            if (content.length() > chunkOverlap) {
+                sb.append(content.substring(chunkOverlap));
+            } else {
+                sb.append(content);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Returns file names of all ingested XML files (query files like report-queries.xml).
+     */
+    public List<String> listXmlFileNames() {
+        return listFiles().stream()
+                .map(f -> (String) f.get("fileName"))
+                .filter(name -> name != null && name.toLowerCase().endsWith(".xml"))
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public void deleteFile(String fileName) {
         ragChunkRepository.deleteByFileName(fileName);

@@ -118,30 +118,63 @@ public class ClaudeAiService {
      * Supports multi-turn conversation via messages list.
      */
     public Map<String, Object> chatAnalyze(String issue, List<Map<String, String>> conversationMessages,
-                                            String schemaContext, String ragContext) {
+                                            String schemaContext, String ragContext, String fullQueryXml) {
         try {
             StringBuilder systemPrompt = new StringBuilder();
             systemPrompt.append(
-                "You are an expert DMS (Distributor Management System) debug assistant for the Kellogg distribution system (DMS-Kellogg) built by Botree Software.\n\n"
-                + "You diagnose live production issues reported by L1/L2/L3 support engineers.\n"
-                + "You have access to the database schema and source code context below.\n\n"
-                + "STRICT RULES:\n"
-                + "1. Only generate SELECT queries — absolutely NO INSERT, UPDATE, DELETE, DROP, or any mutating SQL.\n"
-                + "2. Always target the kellogg_uat schema.\n"
-                + "3. The SQL must be fully executable on MySQL 8.x — no placeholders, no pseudo-code.\n"
-                + "4. Respond ONLY with a single valid JSON object — NO markdown, NO code fences, NO extra text.\n"
-                + "5. The JSON must have EXACTLY these keys (all required):\n\n"
+                "You are an expert DMS (Distributor Management System) L3 debug assistant for the Kellogg distribution system built by Botree Software.\n\n"
+                + "You diagnose live production issues. Your job is to:\n"
+                + "  1. Identify the report/screen involved\n"
+                + "  2. Extract structured parameters from the issue description\n"
+                + "  3. Identify the exact query name from the SQL query file (if provided)\n"
+                + "  4. Provide root cause analysis and fix instructions\n\n"
+                + "IMPORTANT: You do NOT generate SQL. The backend builds the SQL from the query file using your extracted params.\n\n"
+
+                + "== QUERY IDENTIFICATION ==\n"
+                + "If the issue involves a known report, set query_name to the exact name attribute from the <sql-query> tag.\n"
+                + "Known mappings:\n"
+                + "  'current stock weight' / 'stock weight report' / 'CSV download blank' → 'CurrentStockWeight.fetchCSVData'\n"
+                + "  'stock weight total' / 'total summary' / 'fetchCSVDataTotal' → 'CurrentStockWeight.fetchCSVDataTotal'\n"
+                + "If no matching query is found, set query_name to empty string \"\".\n"
+                + "IMPORTANT: Only set query_name if the issue clearly identifies a specific report by name or symptom. "
+                + "If the description is too vague (no report name, no branch code, no specific symptom), set query_name to \"\" "
+                + "and explain in root_cause that more details are needed.\n\n"
+
+                + "== PARAMETER EXTRACTION (extracted_params) ==\n"
+                + "Extract these from the natural language issue text:\n"
+                + "  distrBrCodes  : list of distributor branch codes mentioned (e.g. [\"KLDEL01\"])\n"
+                + "  godownCodes   : list of godown codes if mentioned, else empty list []\n"
+                + "  productStatus : \"ALL\" by default. Use \"Y\" if user says 'active products only' / 'only active products'. Use \"N\" if user says 'inactive products' / 'discontinued products' / 'inactive only'.\n"
+                + "  batchStatus   : \"ALL\" by default. Use \"Y\" if user says 'active batches only' / 'only active batches'. Use \"N\" if user says 'inactive batches' / 'expired batches' / 'inactive batch only'.\n"
+                + "Examples:\n"
+                + "  'only inactive batches'        → batchStatus: \"N\"\n"
+                + "  'show active batches only'     → batchStatus: \"Y\"\n"
+                + "  'all batches'                  → batchStatus: \"ALL\"\n"
+                + "  'only active products'         → productStatus: \"Y\"\n"
+                + "  'including discontinued items' → productStatus: \"N\"\n\n"
+
+                + "== STRICT OUTPUT RULES ==\n"
+                + "Respond ONLY with a single valid JSON object — NO markdown, NO code fences, NO extra text.\n"
+                + "The JSON must have EXACTLY these keys:\n\n"
                 + "{\n"
-                + "  \"issue_summary\": \"one sentence description of the issue\",\n"
-                + "  \"module\": \"affected DMS module name (e.g., Order Processing, Inventory, Billing, Distribution, Reports)\",\n"
-                + "  \"affected_table\": \"main MySQL table involved\",\n"
-                + "  \"sql\": \"full executable MySQL SELECT query\",\n"
-                + "  \"sql_explanation\": \"what this query will reveal\",\n"
-                + "  \"root_cause\": \"most likely root cause of the issue\",\n"
+                + "  \"issue_summary\": \"one sentence description\",\n"
+                + "  \"module\": \"affected DMS module (e.g. Reports, Inventory, Distribution)\",\n"
+                + "  \"affected_table\": \"primary MySQL table involved\",\n"
+                + "  \"query_name\": \"exact sql-query name attribute, or empty string if not applicable\",\n"
+                + "  \"extracted_params\": {\n"
+                + "    \"distrBrCodes\": [\"KLDEL01\"],\n"
+                + "    \"godownCodes\": [\"GDN01\"],\n"
+                + "    \"productStatus\": \"ALL\",\n"
+                + "    \"batchStatus\": \"ALL\"\n"
+                + "  },\n"
+                + "  \"sql\": \"\",\n"
+                + "  \"sql_explanation\": \"what the query will reveal about the issue\",\n"
+                + "  \"root_cause\": \"most likely root cause\",\n"
                 + "  \"fix\": \"step by step resolution instructions\",\n"
                 + "  \"severity\": \"LOW | MEDIUM | HIGH | CRITICAL\"\n"
                 + "}\n\n"
-                + "IMPORTANT: Output ONLY the JSON object. No markdown. No explanation outside the JSON. No ```json fences.\n\n"
+                + "CRITICAL: Leave sql as empty string \"\". The backend will build it from the XML query file.\n"
+                + "Output ONLY the JSON object. No markdown. No explanation outside the JSON.\n\n"
             );
 
             systemPrompt.append("DATABASE SCHEMA:\n");
@@ -150,6 +183,11 @@ public class ClaudeAiService {
             if (ragContext != null && !ragContext.isBlank()) {
                 systemPrompt.append("\n\nSOURCE CODE CONTEXT (from RAG — uploaded application files):\n");
                 systemPrompt.append(ragContext);
+            }
+
+            if (fullQueryXml != null && !fullQueryXml.isBlank()) {
+                systemPrompt.append("\n\n== SQL QUERY FILE (for query_name identification only) ==\n");
+                systemPrompt.append(fullQueryXml);
             }
 
             // Build messages array
@@ -226,11 +264,29 @@ public class ClaudeAiService {
             result.put("issue_summary", node.path("issue_summary").asText(""));
             result.put("module", node.path("module").asText(""));
             result.put("affected_table", node.path("affected_table").asText(""));
+            result.put("query_name", node.path("query_name").asText(""));
             result.put("sql", node.path("sql").asText(""));
             result.put("sql_explanation", node.path("sql_explanation").asText(""));
             result.put("root_cause", node.path("root_cause").asText(""));
             result.put("fix", node.path("fix").asText(""));
             result.put("severity", node.path("severity").asText("MEDIUM"));
+
+            // Parse extracted_params as a nested map
+            JsonNode paramsNode = node.path("extracted_params");
+            if (!paramsNode.isMissingNode() && paramsNode.isObject()) {
+                Map<String, Object> params = new LinkedHashMap<>();
+                // distrBrCodes
+                List<String> distrBrCodes = new ArrayList<>();
+                paramsNode.path("distrBrCodes").forEach(n -> distrBrCodes.add(n.asText()));
+                params.put("distrBrCodes", distrBrCodes);
+                // godownCodes
+                List<String> godownCodes = new ArrayList<>();
+                paramsNode.path("godownCodes").forEach(n -> godownCodes.add(n.asText()));
+                params.put("godownCodes", godownCodes);
+                params.put("productStatus", paramsNode.path("productStatus").asText("ALL"));
+                params.put("batchStatus", paramsNode.path("batchStatus").asText("ALL"));
+                result.put("extracted_params", params);
+            }
             return result;
         } catch (Exception e) {
             log.warn("Failed to parse Claude JSON response, returning raw text. Error: {}", e.getMessage());

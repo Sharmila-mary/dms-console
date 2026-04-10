@@ -1,5 +1,6 @@
 package com.example.reportportal.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.regex.Pattern;
@@ -7,7 +8,8 @@ import java.util.regex.Pattern;
 @Component
 public class QuerySafetyValidator {
 
-    private static final int MAX_QUERY_LENGTH = 4000;
+    @Value("${query.max-length:10000}")
+    private int maxQueryLength;
 
     private static final String[] BLOCKED_KEYWORDS = {
             "INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE", "ALTER", "CREATE",
@@ -27,9 +29,9 @@ public class QuerySafetyValidator {
             throw new IllegalArgumentException("SQL query cannot be empty.");
         }
 
-        if (sql.length() > MAX_QUERY_LENGTH) {
+        if (sql.length() > maxQueryLength) {
             throw new IllegalArgumentException(
-                    "Query exceeds maximum length of " + MAX_QUERY_LENGTH + " characters (got " + sql.length() + ").");
+                    "Query exceeds maximum length of " + maxQueryLength + " characters (got " + sql.length() + ").");
         }
 
         // Block SQL comments

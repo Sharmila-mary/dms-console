@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<!DOCTYPE hibernate-mapping PUBLIC
+		"-//Hibernate/Hibernate Mapping DTD 3.0//EN"
+		"http://www.hibernate.org/dtd/hibernate-mapping-3.0.dtd">
+
+<hibernate-mapping>
+
+	<sql-query name="CurrentStockWeight.findDistributorName">
+		SELECT dis.DistrName
+		FROM Distributor dis
+		WHERE dis.DistrCode=:distrCode
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.findCompanies">
+		SELECT DISTINCT cmp.CmpCode AS cmpCode, cmp.CmpName AS cmpName
+		FROM StockOnHand SOH
+		JOIN Company cmp ON SOH.CmpCode = cmp.CmpCode
+		WHERE SOH.DistrBrCode IN (:distrBranches)
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.findGodowns">
+		SELECT DISTINCT Gd.GodownCode AS godownCode, Gd.GodownName AS godownName
+		FROM Godown Gd
+		JOIN StockOnHand SO ON Gd.GodownCode = SO.GodownCode
+		AND Gd.DistrCode = SO.DistrCode
+		AND Gd.DistrBrCode = SO.DistrBrCode
+		AND Gd.CmpCode = SO.CmpCode
+		WHERE SO.DistrBrCode IN (:distrBranches)
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.findProductHierLevel">
+		<return alias="phl"/>
+		SELECT {phl.*}
+		FROM ProductHierLevel phl
+		WHERE phl.CmpCode = :cmpCode
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.findProductHierValue">
+		<return alias="PHV"/>
+		SELECT {PHV.*}
+		FROM ProductHierValue PHV
+		WHERE PHV.ProdHierLvlCode IN (:prodHierLvlCodes)
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.findProducts">
+		<return alias="p"/>
+		SELECT {p.*}
+		FROM Product p
+		WHERE p.ProdHierValCode IN (:prodHierValCodes)
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.fetchCSVData">
+		SELECT DISTINCT D.DistrCode AS distrCode, D.DistrName AS distrName,
+		DB.DistrBrCode AS distrBrCode, DB.DistrBrName AS distrBrName, G.GodownName AS godownName,
+		GP.HSNCode AS hsncode, P.ProdCode AS prodCode, P.ProdName AS prodName,
+		PB.ProdBatchCode AS prodBatchCode, PB.ExpiryDt AS expiryDt, PP.MRP AS mrp, PP.PurPrice AS purPrice,
+		COALESCE((SO.SaleableQty - SO.ResvSaleQty), 0) / (SELECT MAX(pu.UomConvFactor) FROM ProductUOM pu WHERE pu.CmpCode = P.CmpCode AND pu.ProdCode = P.ProdCode) AS saleableStock,
+		COALESCE((SO.SaleableQty - SO.ResvSaleQty), 0) % (SELECT MAX(pu.UomConvFactor) FROM ProductUOM pu WHERE pu.CmpCode = P.CmpCode AND pu.ProdCode = P.ProdCode) AS saleableStockLoose,
+		(SO.SaleableQty - SO.ResvSaleQty) AS saleableQty, (SO.UnSaleableQty - SO.ResvUnsaleQty) AS unsaleableQty, (SO.OfferQty - SO.ResvOfferQty) AS offerQty,
+		((SO.SaleableQty - SO.ResvSaleQty) * PP.PurPrice) AS saleableStockValue,
+		((SO.UnSaleableQty - SO.ResvUnsaleQty) * PP.PurPrice) AS unsaleableStockValue,
+		((SO.SaleableQty - SO.ResvSaleQty) * PP.PurPrice) + ((SO.UnSaleableQty - SO.ResvUnsaleQty) * PP.PurPrice) AS totalStockValue,
+		CASE WHEN P.ProdWgtType = 'GM' THEN ((SO.SaleableQty - SO.ResvSaleQty) * P.ProdNetWgt / 1000) ELSE ((SO.SaleableQty - SO.ResvSaleQty) * P.ProdNetWgt) END AS saleableWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN ((SO.UnSaleableQty - SO.ResvUnsaleQty) * P.ProdNetWgt / 1000) ELSE ((SO.UnSaleableQty - SO.ResvUnsaleQty) * P.ProdNetWgt) END AS unsaleableWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN ((SO.OfferQty - SO.ResvOfferQty) * P.ProdNetWgt / 1000) ELSE ((SO.OfferQty - SO.ResvOfferQty) * P.ProdNetWgt) END AS offerWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN (((SO.SaleableQty - SO.ResvSaleQty) + (SO.UnSaleableQty - SO.ResvUnsaleQty) + (SO.OfferQty - SO.ResvOfferQty)) * P.ProdNetWgt / 1000)
+		ELSE (((SO.SaleableQty - SO.ResvSaleQty) + (SO.UnSaleableQty - SO.ResvUnsaleQty) + (SO.OfferQty - SO.ResvOfferQty)) * P.ProdNetWgt) END AS totalWeight,
+		P.ProdWgtType AS productWeightType, ph.ProdHierValName AS packSizeName, GP.GSTProdType AS productType,
+		CASE WHEN DATEDIFF(PB.ExpiryDt, NOW()) &lt; 0 THEN 0 ELSE DATEDIFF(PB.ExpiryDt, NOW()) END AS daysToExpiry
+		FROM Product P
+		JOIN ProductBatch PB ON P.ProdCode = PB.ProdCode AND P.CmpCode = PB.CmpCode
+		JOIN ProductPricing PP ON PB.ProdCode = PP.ProdCode AND PB.ProdBatchCode = PP.ProdBatchCode AND PB.CmpCode = PP.CmpCode
+		JOIN GSTProduct GP ON P.ProdCode = GP.ProdCode AND P.CmpCode = GP.CmpCode
+		JOIN SupplyChainMapping SCM ON PP.CmpCode = SCM.CmpCode AND PP.FromLevel = SCM.LevelCode AND PP.ToLevel = SCM.SellToLevelCode
+		JOIN StockOnHand SO ON PB.ProdCode = SO.ProdCode AND PB.ProdBatchCode = SO.ProdBatchCode AND PB.CmpCode = SO.CmpCode
+		JOIN DistributorBranch DB ON SO.DistrCode = DB.DistrCode AND SO.DistrBrCode = DB.DistrBrCode AND SO.CmpCode = DB.CmpCode
+		JOIN Godown G ON SO.DistrCode = G.DistrCode AND SO.DistrBrCode = G.DistrBrCode AND SO.GodownCode = G.GodownCode AND SO.CmpCode = G.CmpCode
+		JOIN Distributor D ON DB.DistrCode = D.DistrCode AND DB.CmpCode = D.CmpCode
+		JOIN ProductHierValue ph ON P.ProdHierValCode = ph.ProdHierValCode AND P.CmpCode = ph.CmpCode
+		WHERE DB.IsDeleted = 'N'
+		AND PP.FromLevel IN (SELECT SCM_inner.LevelCode FROM SupplyChainMaster SCM_inner WHERE SCM_inner.MemberCode IN (:DISTR_BR_LST) AND SCM_inner.CmpCode = P.CmpCode)
+		AND PP.ToLevel NOT IN (SELECT SCM_inner.LevelCode FROM SupplyChainMaster SCM_inner WHERE SCM_inner.MemberCode IN (:DISTR_BR_LST) AND SCM_inner.CmpCode = P.CmpCode AND SCM_inner.LevelCode > PP.FromLevel)
+		AND SO.DistrBrCode IN (:DISTR_BR_LST)
+		AND PP.GeoCode IN (:GEOPROD_LST)
+		AND SO.DistrCode IN (:DISTRIBUTOR_LST)
+		AND (SO.GodownCode IN (:GODOWN_LST) OR :GODOWN_AVL = 'N')
+		AND P.ProdCode IN (SELECT DISTINCT p1.ProdCode FROM Product p1 JOIN LOBMaster l ON p1.CmpCode = l.CmpCode
+		WHERE p1.ProductHierPath LIKE CONCAT('%/', l.ProdHierValCode, '/%')
+		AND l.LobCode IN (:LOBCODE_LIST)
+		AND (p1.ProdHierValCode IN (:PRODUCT_HIER_VALUE_LIST) OR :PRODUCT_AVL = 'N'))
+		AND (P.IsActive = :PRODUCT_STATUS_ACTIVE_STR OR P.IsActive = :PRODUCT_STATUS_INACTIVE_STR)
+		AND (PB.IsActive = :BATCH_STATUS_ACTIVE_STR OR PB.IsActive = :BATCH_STATUS_INACTIVE_STR)
+		AND (SO.SaleableQty + SO.UnSaleableQty + SO.OfferQty) > 0
+		ORDER BY D.DistrName, DB.DistrBrName, P.ProdName, PB.ProdBatchCode
+	</sql-query>
+
+	<sql-query name="CurrentStockWeight.fetchCSVDataTotal">
+		SELECT DISTINCT D.DistrCode AS distrCode, D.DistrName AS distrName,
+		DB.DistrBrCode AS distrBrCode, DB.DistrBrName AS distrBrName, G.GodownName AS godownName,
+		GP.HSNCode AS hsncode, P.ProdCode AS prodCode, P.ProdName AS prodName,
+		PB.ProdBatchCode AS prodBatchCode, PB.ExpiryDt AS expiryDt, PP.MRP AS mrp, PP.PurPrice AS purPrice,
+		SUM((SO.SaleableQty - SO.ResvSaleQty)) AS saleableQty,
+		SUM((SO.UnSaleableQty - SO.ResvUnsaleQty)) AS unsaleableQty,
+		SUM((SO.OfferQty - SO.ResvOfferQty)) AS offerQty,
+		SUM(((SO.SaleableQty - SO.ResvSaleQty) * PP.PurPrice)) AS saleableStockValue,
+		SUM(((SO.UnSaleableQty - SO.ResvUnsaleQty) * PP.PurPrice)) AS unsaleableStockValue,
+		SUM(((SO.SaleableQty - SO.ResvSaleQty) * PP.PurPrice) + ((SO.UnSaleableQty - SO.ResvUnsaleQty) * PP.PurPrice)) AS totalStockValue,
+		CASE WHEN P.ProdWgtType = 'GM' THEN SUM(((SO.SaleableQty - SO.ResvSaleQty) * P.ProdNetWgt / 1000)) ELSE SUM(((SO.SaleableQty - SO.ResvSaleQty) * P.ProdNetWgt)) END AS saleableWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN SUM(((SO.UnSaleableQty - SO.ResvUnsaleQty) * P.ProdNetWgt / 1000)) ELSE SUM(((SO.UnSaleableQty - SO.ResvUnsaleQty) * P.ProdNetWgt)) END AS unsaleableWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN SUM(((SO.OfferQty - SO.ResvOfferQty) * P.ProdNetWgt / 1000)) ELSE SUM(((SO.OfferQty - SO.ResvOfferQty) * P.ProdNetWgt)) END AS offerWeight,
+		CASE WHEN P.ProdWgtType = 'GM' THEN SUM((((SO.SaleableQty - SO.ResvSaleQty) + (SO.UnSaleableQty - SO.ResvUnsaleQty) + (SO.OfferQty - SO.ResvOfferQty)) * P.ProdNetWgt / 1000))
+		ELSE SUM((((SO.SaleableQty - SO.ResvSaleQty) + (SO.UnSaleableQty - SO.ResvUnsaleQty) + (SO.OfferQty - SO.ResvOfferQty)) * P.ProdNetWgt)) END AS totalWeight
+		FROM Product P
+		JOIN ProductBatch PB ON P.ProdCode = PB.ProdCode AND P.CmpCode = PB.CmpCode
+		JOIN ProductPricing PP ON PB.ProdCode = PP.ProdCode AND PB.ProdBatchCode = PP.ProdBatchCode AND PB.CmpCode = PP.CmpCode
+		JOIN GSTProduct GP ON P.ProdCode = GP.ProdCode AND P.CmpCode = GP.CmpCode
+		JOIN SupplyChainMapping SCM ON PP.CmpCode = SCM.CmpCode AND PP.FromLevel = SCM.LevelCode AND PP.ToLevel = SCM.SellToLevelCode
+		JOIN StockOnHand SO ON PB.ProdCode = SO.ProdCode AND PB.ProdBatchCode = SO.ProdBatchCode AND PB.CmpCode = SO.CmpCode
+		JOIN DistributorBranch DB ON SO.DistrCode = DB.DistrCode AND SO.DistrBrCode = DB.DistrBrCode AND SO.CmpCode = DB.CmpCode
+		JOIN Godown G ON SO.DistrCode = G.DistrCode AND SO.DistrBrCode = G.DistrBrCode AND SO.GodownCode = G.GodownCode AND SO.CmpCode = G.CmpCode
+		JOIN Distributor D ON DB.DistrCode = D.DistrCode AND DB.CmpCode = D.CmpCode
+		WHERE DB.IsDeleted = 'N'
+		AND PP.FromLevel IN (SELECT SCM_inner.LevelCode FROM SupplyChainMaster SCM_inner WHERE SCM_inner.MemberCode IN (:DISTR_BR_LST) AND SCM_inner.CmpCode = P.CmpCode)
+		AND PP.ToLevel NOT IN (SELECT SCM_inner.LevelCode FROM SupplyChainMaster SCM_inner WHERE SCM_inner.MemberCode IN (:DISTR_BR_LST) AND SCM_inner.CmpCode = P.CmpCode AND SCM_inner.LevelCode > PP.FromLevel)
+		AND SO.DistrBrCode IN (:DISTR_BR_LST)
+		AND PP.GeoCode IN (:GEOPROD_LST)
+		AND SO.DistrCode IN (:DISTRIBUTOR_LST)
+		AND (SO.GodownCode IN (:GODOWN_LST) OR :GODOWN_AVL = 'N')
+		AND P.ProdCode IN (SELECT DISTINCT p1.ProdCode FROM Product p1 JOIN LOBMaster l ON p1.CmpCode = l.CmpCode
+		WHERE p1.ProductHierPath LIKE CONCAT('%/', l.ProdHierValCode, '/%')
+		AND l.LobCode IN (:LOBCODE_LIST)
+		AND (p1.ProdHierValCode IN (:PRODUCT_HIER_VALUE_LIST) OR :PRODUCT_AVL = 'N'))
+		AND (P.IsActive = :PRODUCT_STATUS_ACTIVE_STR OR P.IsActive = :PRODUCT_STATUS_INACTIVE_STR)
+		AND (PB.IsActive = :BATCH_STATUS_ACTIVE_STR OR PB.IsActive = :BATCH_STATUS_INACTIVE_STR)
+		AND (SO.SaleableQty + SO.UnSaleableQty + SO.OfferQty) > 0
+		GROUP BY D.DistrCode, D.DistrName, DB.DistrBrCode, DB.DistrBrName, G.GodownName, GP.HSNCode, P.ProdCode, P.ProdName, PB.ProdBatchCode, PB.ExpiryDt, PP.MRP, PP.PurPrice, P.ProdWgtType, P.ProdNetWgt
+	</sql-query>
+
+</hibernate-mapping>
